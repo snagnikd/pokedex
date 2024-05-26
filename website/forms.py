@@ -47,3 +47,6 @@ class AddRecordForm(forms.ModelForm):
 	class Meta:
 		model = Record
 		exclude = ("user",)
+
+class PokemonForm(forms.Form):
+    describe_pokemon = forms.CharField(required=True, widget=forms.widgets.Textarea(attrs={"placeholder":"Describe the Pokemon", "class":"form-control"}), label="")

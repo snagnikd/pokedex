@@ -32,3 +32,9 @@
     </div>
   </div>
 </nav>
+
+<form id="api-form" method="POST" action="{% url 'voice_add' %}" style="display: none;">
+  {% csrf_token %}
+  <!-- Add any additional hidden fields you need to send to the API -->
+  <input type="hidden" name="additional_data" value="value">
+</form>

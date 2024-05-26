@@ -1,9 +1,19 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth import authenticate, login, logout
 from django.contrib import messages
-from .forms import SignUpForm, AddRecordForm
+from .forms import SignUpForm, AddRecordForm, PokemonForm
 from .models import Record
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain import LLMChain
+from .serializers import RecordSerializer
+from django.views.decorators.csrf import csrf_exempt
+import requests
+import os
+import json
 
+OPEN_API_KEY = os.environ.get('OPENAI_API_KEY')
+llm = ChatOpenAI(temperature=0.9, openai_api_key=OPEN_API_KEY, model='gpt-3.5-turbo')
 
 def home(request):
 	records = Record.objects.all()
@@ -74,17 +84,18 @@ def delete_record(request, pk):
 
 
 def add_record(request):
-	form = AddRecordForm(request.POST or None)
-	if request.user.is_authenticated:
-		if request.method == "POST":
-			if form.is_valid():
-				add_record = form.save()
-				messages.success(request, "Record Added...")
-				return redirect('home')
-		return render(request, 'add_record.html', {'form':form})
-	else:
-		messages.success(request, "You Must Be Logged In...")
-		return redirect('home')
+    desc_form = PokemonForm(request.POST or None)
+    form = AddRecordForm(request.POST or None)
+    if request.user.is_authenticated:
+        if request.method == "POST":
+            if form.is_valid():
+                add_record = form.save()
+                messages.success(request, "Record Added...")
+                return redirect('home')
+        return render(request, 'add_record.html', {'form': form, 'desc_form': desc_form})
+    else:
+        messages.success(request, "You Must Be Logged In...")
+        return redirect('home')
 
 
 def update_record(request, pk):
@@ -99,3 +110,62 @@ def update_record(request, pk):
 	else:
 		messages.success(request, "You Must Be Logged In...")
 		return redirect('home')
+
+def voice_add(request):
+    if request.user.is_authenticated:
+        if request.method == "POST":
+            desc_form = PokemonForm(request.POST)
+            if desc_form.is_valid():
+                input_text = desc_form.cleaned_data['describe_pokemon']
+                template = '''You are embedded in a pokedex tool that enables pokemon trainers to leave a
+short voice memo about a pokemon. Utilize the text from the voice memo to guess the name of the Pokemon. 
+If the pokemon cannot be guessed, return 'NA'.
+
+Here's the json response format.
+
+"name": "",
+"description": ""
+
+Only provide the pokemon name and a description in the above json format, no other text in the answer, here is the text:
+
+{text}'''
+
+                prompt = PromptTemplate(
+                    input_variables=["text"],
+                    template=template)
+                llm_chain = LLMChain(prompt=prompt, llm=llm)
+                response = llm_chain.run({
+                    "text": input_text,
+                })
+
+                pokemon_data = json.loads(response)
+                pokemon_name = pokemon_data['name'].lower()
+                pokemon_description = pokemon_data['description']
+
+                response = requests.get(f'https://pokeapi.co/api/v2/pokemon/{pokemon_name}')
+                
+                if response.status_code == 200:
+                    resp_data = response.json()
+                    table_data = {
+                        'id': resp_data['id'],
+                        'name': resp_data['name'],
+                        'experience': resp_data['base_experience'],
+                        'height': resp_data['height'],
+                        'image_url': resp_data['sprites']['other']['dream_world']['front_default'] if resp_data['sprites']['other']['dream_world']['front_default'] else resp_data['sprites']['other']['home']['front_default'],
+                        'description': pokemon_description
+                    }
+                    serializer = RecordSerializer(data=table_data)
+                    if serializer.is_valid():
+                        serializer.save()
+                        messages.success(request, "Record Added...")
+                        return redirect('record', pk=table_data['id'])
+                    else:
+                        messages.error(request, "Record Not Added...")
+                else:
+                    messages.error(request, "Pokemon not found...")
+        else:
+            desc_form = PokemonForm()
+        return render(request, 'add_record.html', {'desc_form': desc_form})
+    else:
+        messages.success(request, "You Must Be Logged In...")
+        return redirect('home')
