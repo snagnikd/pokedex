@@ -11,6 +11,9 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import os
 import json
+from dotenv import load_dotenv
+
+load_dotenv()
 
 OPEN_API_KEY = os.environ.get('OPENAI_API_KEY')
 llm = ChatOpenAI(temperature=0.9, openai_api_key=OPEN_API_KEY, model='gpt-3.5-turbo')
